@@ -375,6 +375,7 @@ class AmietTE:
             phippi_lin = self._Phipp_total_lin[i]  # Φ_pp(f_i) [Pa²/Hz]
             l_y_i      = self.Ly[i]                # l_y(f_i)  [m] — index i into the (n_freq,) array
             omega_i    = 2.0 * math.pi * freq_i    # ω_i       [rad/s]
+            k = omega_i / self.cinf                # k_c, acoustic wavenumber       [1/m]
             for j, obs in enumerate(self.observers):
                 x1, x2, x3 = obs[0], obs[1], obs[2]
                 # Retarded (Prandtl-Glauert) distance [m]
@@ -385,7 +386,7 @@ class AmietTE:
                     freq_i, x1, x2, x3, self.chord, Uinf, self.Uc, self.cinf)
                 calL_sq = abs(self.Directivity[i, j])**2  # |mathcal{L}|², scalar [-]
                 # Amiet/Roger&Moreau prefactor (ω b x3 / (4π c∞ S0²))²  [m⁻²]
-                prefactor = (omega_i * self.chord * x3 / (4.0 * math.pi * S0**2))**2
+                prefactor = (k * self.chord * x3 / (4.0 * math.pi * S0**2))**2
                 Spp_lin = (
                     prefactor * 2* self.span * calL_sq * phippi_lin  * l_y_i
                 )
