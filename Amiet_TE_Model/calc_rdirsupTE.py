@@ -133,9 +133,9 @@ def rdirsupTE(freq, x1:float, x2:float, x3:float, chord:float=0.3048, Uinf:float
     Kb = Ka * chord / 2.0                   # Aerodynamic wavenumber
     Kby = 0.0                               # No spanwise aerodynamic wavenumber
     mu = Kb * M / be2                       # Mach number in the convective frame
-    kapa = np.sqrt(np.real(mu**2 - Kby**2 / be2 )) # Complex square root
+    kapa = np.sqrt(complex(mu**2 - Kby**2 / be2, 0.0))  # Complex square root
     exp4ikapa = np.exp(4.0j * kapa)             # Exponential term
-    alpha = Uinf / Uc                       # Ratio of free-stream velocity to convective velocity (NOTE: NOT ANGLE OF ATTACK!)
+    alpha = Uc / Uinf   # ≈ 0.6–0.8, per Roger & Moreau (2005)                       # Ratio of free-stream velocity to convective velocity (NOTE: NOT ANGLE OF ATTACK!)
 
     epsi = 1.0 / np.sqrt(1.0 + 1.0 / (4.0 * mu))    # Epsilon term
     S0 = np.sqrt(x1**2 + be2 * (x2**2 + x3**2))     # Distance from the source to the observer

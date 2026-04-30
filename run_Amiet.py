@@ -4,7 +4,7 @@ Can be used to run the Amiet TE model from a dictionary of arguments.
 """
 import argparse
 from TEModel import main
-from TEModel import parse_args  # assuming parse_args is exposed
+from TEModel import parse_args
 import numpy as np
 
 def run_amiet():
@@ -15,7 +15,7 @@ def run_amiet():
         "input_dir": "./input",
         "input_style": "custom",
         "input_data": "",
-        "input_data_row": 20,
+        "input_data_row": 38,
 
         # Observer
         "observer_origin": [0.0,0.0,0.0],
@@ -24,13 +24,20 @@ def run_amiet():
         "selected_freqs": [500, 1000, 2000, 5000],
 
         # WPS and coherence
-        "WPS_model": "experiment",
-        "Coherence_model": "rozenberg",
-        "WPS_path": 'wall_pressure_spectra_021.dat',
+        "Struhal": True,
+        "WPS_model": "simulation",
+        "WPS_model_PS": "simulation",         
+        "Coherence_model": "crocos",
+        "WPS_path": 'CF08_WPS_038.csv',
+        "WPS_path_PS": "CG08_WPS_038.csv",     
         "Coherence_path": 'correlation_length.dat',
 
+        # Airoil Parameters
+        "Uref": 16.0,
+        "chord": 0.1256,
+        "span": 0.5715,
+
         # Boundary layer parameters
-        "Uref": 30.0,
         "Ue": 32.0,
         "delta": 0.01,
         "delta_star": 0.006,
@@ -40,8 +47,6 @@ def run_amiet():
         "PI": 0.95,
         "Rt": 18.5,
         "dpdx": -1345.0,
-        "chord": 0.3048,
-        "span": 0.5715,
         "cinf": 343.0, 
         "Uc": 24.0,
     }

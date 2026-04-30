@@ -39,9 +39,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--selected_freqs", '-sf', type=list, default=[500,1000,2000], help="Selected frequencies for the directivity plot")
     
     # The WPS and Coherence options
-    parser.add_argument("--WPS_model", '-wps', type=str.lower, default='rozenberg', help="Applied model for the WPS", choices=["goody", "rozenberg", "lee", "experiment", "simulation"])
+    parser.add_argument("--Struhal", '-st', type=bool, default=True, help="Whether to use Strouhal scaling for the frequencies (f*delta/Ue) instead of physical frequencies (Hz)")
+    parser.add_argument("--WPS_model", '-wps', type=str.lower, default='rozenberg', help="Applied model for the suction-side WPS", choices=["goody", "rozenberg", "lee", "experiment", "simulation"])
+    parser.add_argument("--WPS_model_PS", '-wps_ps', type=str.lower, default=None, help="Applied model for the pressure-side WPS. If not provided the pressure-side contribution is assumed to be zero.", choices=["goody", "rozenberg", "lee", "experiment", "simulation"])
     parser.add_argument("--Coherence_model", '-coh', type=str.lower, default='corcos', help="Applied model for the Coherence", choices=["corcos", "experiment", "simulation"])
-    parser.add_argument("--WPS_path", '-wps_path', type=str, default=None, help="Path to the WPS data file, relative to the input directory")
+    parser.add_argument("--WPS_path", '-wps_path', type=str, default=None, help="Path to the suction-side WPS data file, relative to the input directory")
+    parser.add_argument("--WPS_path_PS", '-wps_path_ps', type=str, default=None, help="Path to the pressure-side WPS data file, relative to the input directory")
     parser.add_argument("--Coherence_path", '-coh_path', type=str, default=None, help="Path to the Coherence data file, relative to the input directory")
 
     # The required boundary layer parameters
@@ -106,12 +109,18 @@ class ComputeAmiet_TE():
         
         # check the validity of the input data for experimental or simulation data
         args.WPS_path = os.path.join(self.input_dir, args.WPS_path) if args.WPS_path is not None else None
+        args.WPS_path_PS = os.path.join(self.input_dir, args.WPS_path_PS) if args.WPS_path_PS is not None else None
         args.Coherence_path = os.path.join(self.input_dir, args.Coherence_path) if args.Coherence_path is not None else None
         if args.WPS_model == "experiment" or args.WPS_model == "simulation":
             if args.WPS_path is None:
-                raise ValueError("WPS path must be provided for experimental or simulation data.")
+                raise ValueError("Suction-side WPS path must be provided for experimental or simulation data.")
             if not os.path.isfile(args.WPS_path):
-                raise FileNotFoundError(f"WPS file {args.WPS_path} does not exist.")
+                raise FileNotFoundError(f"Suction-side WPS file {args.WPS_path} does not exist.")
+        if args.WPS_model_PS is not None and (args.WPS_model_PS == "experiment" or args.WPS_model_PS == "simulation"):
+            if args.WPS_path_PS is None:
+                raise ValueError("Pressure-side WPS path must be provided for experimental or simulation data.")
+            if not os.path.isfile(args.WPS_path_PS):
+                raise FileNotFoundError(f"Pressure-side WPS file {args.WPS_path_PS} does not exist.")
         if args.Coherence_model == "experiment" or args.Coherence_model == "simulation":
             if args.Coherence_path is None:
                 raise ValueError("Coherence path must be provided for experimental or simulation data.")
@@ -174,24 +183,29 @@ class ComputeAmiet_TE():
         """
         # Initializing the amiet model
         amiet = AmietTE(observers=self.observers, data=self.data, freq=None, 
-            phipp_method=args.WPS_model, 
+            phipp_method=args.WPS_model,
+            phipp_method_PS=args.WPS_model_PS,
             coh_method=args.Coherence_model, 
-            spectra=args.WPS_path, 
+            spectra=args.WPS_path,
+            spectra_PS=args.WPS_path_PS,
             coherence=args.Coherence_path,
             cinf=args.cinf, 
             span=args.span, 
             chord=args.chord, 
             Uc=args.Uc,
+            struhal=args.Struhal
             )
         
         # Compute the spectra
         Spp = amiet.compute_Amiet()   # shape: (len(frequencies), n_probes)
-        Phipp = amiet.Phipp
+        Phipp = amiet.Phipp           # total WPS in dB (SS + PS)
+        Phipp_SS = amiet.Phipp_SS     # suction-side WPS in dB
+        Phipp_PS = amiet.Phipp_PS     # pressure-side WPS in dB
         
         print("----> Performing I/O Operations.")
-        self.plot_spectra(amiet.freq, Spp, Phipp, args)
+        self.plot_spectra(amiet.freq, Spp, Phipp, Phipp_SS, Phipp_PS, args)
         self.plot_directivity(amiet.freq, Spp, args.selected_freqs)
-        self.output_file(amiet.freq, Phipp, Spp)
+        self.output_file(amiet.freq, Phipp, Phipp_SS, Phipp_PS, Spp)
         print(f"outputting plot and spectra for {len(amiet.freq)} frequencies and {len(self.observers)} observers.")
         print("spectra files are saved in: ", self.spectra_dir)
         print("directivity files are saved in: ", self.directivity_dir)
@@ -199,9 +213,10 @@ class ComputeAmiet_TE():
         print("----> I/O operations completed.\n")
         print(f"----> Total compute time: {end - self.start:.2f} seconds.\n\n\n")
     
-    def plot_spectra(self, freq, Spp, Phipp, args):
+    def plot_spectra(self, freq, Spp, Phipp, Phipp_SS, Phipp_PS, args):
         """
-        Plot the spectra.
+        Plot the far-field spectra for every observer and the wall-pressure spectra
+        (suction side, pressure side, and total).
         """
         self.set_plot_params()
         for i, observer in enumerate(self.observers):
@@ -215,18 +230,25 @@ class ComputeAmiet_TE():
             plt.tight_layout()
             figname = os.path.join(self.spectra_dir, f'Amiet_TE_Spectra_Probe_{i:03d}')
             plt.savefig(figname+'.png', format='png', dpi=300)
-            plt.close(fig)  # Close the figure to free memory
+            plt.close(fig)
+
+        # Wall-pressure spectra: suction side, pressure side (if available), and total
         fig, ax = plt.subplots()
-        ax.semilogx(freq, Phipp, 'r-', linewidth=2.5)
+        ax.semilogx(freq, Phipp_SS, 'b--', linewidth=2.0, label='Suction side (SS)')
+        has_PS = np.any(np.isfinite(Phipp_PS))
+        if has_PS:
+            ax.semilogx(freq, Phipp_PS, 'g--', linewidth=2.0, label='Pressure side (PS)')
+        ax.semilogx(freq, Phipp, 'r-', linewidth=2.5, label='Total (SS + PS)')
         ax.set_title('Wall Pressure Spectra')
         ax.set_xlabel('Frequency (Hz)')
         ax.set_ylabel(r'$10 \log_{10} \left(\phi_{pp}/p_{\mathrm{ref}}^2\right)$ (dB/Hz)')
         ax.grid(True)
         ax.set_xlim(100, 40000)
+        ax.legend()
         plt.tight_layout()
-        figname = os.path.join(self.spectra_dir, f'WPS_Spectra_'+args.WPS_model)
+        figname = os.path.join(self.spectra_dir, f'WPS_Spectra_' + args.WPS_model)
         plt.savefig(figname+'.png', format='png', dpi=300)
-        plt.close(fig)  # Close the figure to free memory
+        plt.close(fig)
     
     def plot_directivity(self, freq, Spp, selected_freqs):
         # Create one polar plot
@@ -251,24 +273,40 @@ class ComputeAmiet_TE():
         figname = os.path.join(self.directivity_dir, f'Diectivity_Patterns_'+'_'.join([str(f) for f in selected_freqs]))
         plt.savefig(figname+'.png', format='png', dpi=300)
     
-    def output_file(self, freq, Phipp, Spp):
-        """Output the results to individual .dat files for each probe.
+    def output_file(self, freq, Phipp, Phipp_SS, Phipp_PS, Spp):
+        """Output the results to individual .dat files for each probe and WPS components.
         
         Args:
-            freq (numpy.ndarray): Frequencies (1D array of shape n_freq,)
-            Phipp (numpy.ndarray): Wall pressure spectra (unused here)
-            Spp (numpy.ndarray): Spectra at each observer (n_probes, n_freq)
+            freq (numpy.ndarray): Frequencies, shape (n_freq,).
+            Phipp (numpy.ndarray): Total (SS+PS) wall-pressure spectrum in dB, shape (n_freq,).
+            Phipp_SS (numpy.ndarray): Suction-side WPS in dB, shape (n_freq,).
+            Phipp_PS (numpy.ndarray): Pressure-side WPS in dB, shape (n_freq,).
+            Spp (numpy.ndarray): Far-field spectra at each observer, shape (n_freq, n_probes).
         """
         n_probes = Spp.shape[1]
 
         for i in range(n_probes):
             values = np.column_stack((freq, Spp[:, i]))
-            filename = os.path.join(self.spectra_dir,f'Amiet_TE_Spectra_Probe_{i:03d}.dat')
-            np.savetxt( filename, values, header='frequency [Hz] PSD [dB/Hz]', comments='', fmt='%.10f %.10f')
-        
+            filename = os.path.join(self.spectra_dir, f'Amiet_TE_Spectra_Probe_{i:03d}.dat')
+            np.savetxt(filename, values,
+                       header='frequency [Hz] PSD [dB/Hz]', comments='', fmt='%.10f %.10f')
+
+        # Total WPS (SS + PS)
         values = np.column_stack((freq, Phipp))
-        filename = os.path.join(self.spectra_dir,f'WPS_Spectra.dat')
-        np.savetxt( filename, values, header='frequency [Hz] PSD [dB/Hz]', comments='', fmt='%.10f %.10f')
+        np.savetxt(os.path.join(self.spectra_dir, 'WPS_Spectra_Total.dat'), values,
+                   header='frequency [Hz] PSD_total [dB/Hz]', comments='', fmt='%.10f %.10f')
+
+        # Suction-side WPS
+        values_SS = np.column_stack((freq, Phipp_SS))
+        np.savetxt(os.path.join(self.spectra_dir, 'WPS_Spectra_SS.dat'), values_SS,
+                   header='frequency [Hz] PSD_SS [dB/Hz]', comments='', fmt='%.10f %.10f')
+
+        # Pressure-side WPS (written even when all -inf, for completeness)
+        Phipp_PS_out = np.where(np.isfinite(Phipp_PS), Phipp_PS, -999.0)
+        values_PS = np.column_stack((freq, Phipp_PS_out))
+        np.savetxt(os.path.join(self.spectra_dir, 'WPS_Spectra_PS.dat'), values_PS,
+                   header='frequency [Hz] PSD_PS [dB/Hz] (-999 indicates no pressure-side data)',
+                   comments='', fmt='%.10f %.10f')
         
     @staticmethod
     def set_plot_params():
@@ -296,4 +334,3 @@ def main(args):
 if __name__ == "__main__":
     args = parse_args()
     main(args)
-    

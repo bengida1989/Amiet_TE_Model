@@ -49,7 +49,7 @@ def corrlen_Corcos(freq: float, bc: float, Uc: float) -> float:
         float: _description_
     """
     omega = 2.0 * math.pi * freq[1:]
-    if omega.any() <= 0:
+    if (omega <= 0).any():
         raise ValueError("All frequency values except the first must be positive and nonzero.")
     corrlen_Corcos_out = bc * Uc / omega
     
